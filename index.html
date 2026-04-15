@@ -201,6 +201,46 @@
         // Register Chart.js datalabels plugin
         Chart.register(ChartDataLabels);
 
+        // Plugin: draw color swatches after step-line task labels on Y axis
+        const stepLineLabelSwatchPlugin = {
+            id: 'stepLineLabelSwatch',
+            afterDraw(chart) {
+                const stepLineTasks = ['ASW_Rte_Write', 'Adpt_CAN_Write', 'EaC1_5ms_CAN1', 'EaC2_5ms_CAN2'];
+                const yScale = chart.scales.y;
+                const ctx = chart.ctx;
+                const swatchW = 22;
+                const swatchH = 3;
+                const gap = 5; // gap between label text and swatch
+                const fontSize = displayConfig.yAxisFontSize;
+                ctx.font = `bold ${fontSize}px Arial`;
+
+                stepLineTasks.forEach(task => {
+                    const rowY = taskRows[task];
+                    if (rowY === undefined) return;
+                    const pixelY = yScale.getPixelForValue(rowY);
+                    const color = taskColors[task];
+
+                    // Measure label text width and position swatch right after it
+                    const textW = ctx.measureText(task).width;
+                    const padding = yScale.options.ticks.padding || 10;
+                    // Label is right-aligned to (yScale.left - padding)
+                    const labelRight = yScale.left - padding;
+                    const swatchX = labelRight - textW - gap - swatchW;
+
+                    ctx.save();
+                    ctx.strokeStyle = color.replace(/[\d.]+\)$/, '1)');
+                    ctx.lineWidth = swatchH;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(swatchX, pixelY);
+                    ctx.lineTo(swatchX + swatchW, pixelY);
+                    ctx.stroke();
+                    ctx.restore();
+                });
+            }
+        };
+        Chart.register(stepLineLabelSwatchPlugin);
+
         // Global variables
         let currentMin, currentMax, originalMin, originalMax;
         let rawData = '';
@@ -379,7 +419,6 @@
             stepLineTasks.forEach(task => {
                 const times = data[task];
                 const valArray = pointStepValues[task];
-                const bandHalf = displayConfig.stepBandHeight / 2;
                 const baseY = taskRows[task];
 
                 // 找数组中实际用到的值的范围，用于归一化
@@ -390,7 +429,8 @@
 
                 const points = times.map((time, i) => {
                     const val = usedVals[i];
-                    const normalizedY = baseY - bandHalf + ((val - minVal) / range) * displayConfig.stepBandHeight;
+                    // baseY 为波形底部（label所在行），波形向上延伸
+                    const normalizedY = baseY + ((val - minVal) / range) * displayConfig.stepBandHeight;
                     return { x: time, y: normalizedY };
                 });
 
@@ -692,10 +732,10 @@
                     const yScale = timelineChart.scales.y;
                     const chartY = yScale.getValueForPixel(y);
 
-                    // Snap to grid (0.4 increments)
-                    const newY = Math.round(chartY / 0.4) * 0.4;
+                    // Snap to grid (0.2 increments)
+                    const newY = Math.round(chartY / 0.2) * 0.2;
 
-                    if (newY >= 0.4 && newY <= displayConfig.yAxisMax - 0.4) {
+                    if (newY >= 0.2 && newY <= displayConfig.yAxisMax) {
                         taskRows[draggedTask] = newY;
                         timelineChart.data.datasets = prepareChartData();
                         timelineChart.update('none');

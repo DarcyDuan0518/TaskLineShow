@@ -3,19 +3,19 @@
 // 任务行位置配置（可调整纵轴标签间隔）
 // 值越大显示越靠上，从上到下依次排列
 const taskRows = {
-    'Core2_Chassis_ASILD_Task_5ms': 4.6,
-    'Core2_BSW_ASILD_Task_1ms': 4.4,
-    'Core2_BSW_ASILD_Task_5ms': 4.2,
-    'Core2_BSW_ASILD_Task_10ms': 4.0,
-    'Core2_Chassis_ASILD_BSWTask_1ms': 3.8,
-    'Core2_Chassis_ASILD_CDDInTask_5ms': 3.6,
-    'Core2_Chassis_ASILD_Task_10ms': 3.4,
-    'Core2_Chassis_ASILD_Task_20ms': 3.2,
-    'Core2_Chassis_ASILD_Task_40ms': 3.0,
-    'ASW_Rte_Write': 2.4,
-    'Adpt_CAN_Write': 1.8,
-    'EaC1_5ms_CAN1': 1.2,
-    'EaC2_5ms_CAN2': 0.6,
+    'Core2_BSW_ASILD_Task_5ms': 4.8,
+    'Core2_BSW_ASILD_Task_10ms': 4.6,
+    'Core2_Chassis_ASILD_BSWTask_1ms': 4.4,
+    'Core2_Chassis_ASILD_CDDInTask_5ms': 4.2,
+    'Core2_Chassis_ASILD_Task_10ms': 4.0,
+    'Core2_Chassis_ASILD_Task_20ms': 3.8,
+    'Core2_Chassis_ASILD_Task_40ms': 3.6,
+    'Core2_Chassis_ASILD_Task_5ms': 3.4,
+    'Core2_BSW_ASILD_Task_1ms': 3.2,
+    'ASW_Rte_Write': 2.2,
+    'Adpt_CAN_Write': 1.6,
+    'EaC1_5ms_CAN1': 1.0,
+    'EaC2_5ms_CAN2': 0.4,
     // 空标签行，方便临时拖动数据
     '空': 0.2
 };
