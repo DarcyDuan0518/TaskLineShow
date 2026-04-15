@@ -124,9 +124,8 @@
         }
         #time-diff-display {
             position: fixed;
-            top: 50px;
-            left: 50%;
-            transform: translateX(-50%);
+            bottom: 20px;
+            left: 20px;
             background-color: rgba(54, 162, 235, 0.9);
             color: white;
             padding: 12px 25px;
@@ -375,8 +374,52 @@
                 });
             });
 
-            // Point datasets (包括散点任务和空标签行)
-            const pointTasks = ['ASW_Rte_Write', 'Adpt_CAN_Write', 'EaC1_5ms_CAN1', 'EaC2_5ms_CAN2', '空'];
+            // Step-line datasets（4个阶梯信号图）
+            const stepLineTasks = ['ASW_Rte_Write', 'Adpt_CAN_Write', 'EaC1_5ms_CAN1', 'EaC2_5ms_CAN2'];
+            stepLineTasks.forEach(task => {
+                const times = data[task];
+                const valArray = pointStepValues[task];
+                const bandHalf = displayConfig.stepBandHeight / 2;
+                const baseY = taskRows[task];
+
+                // 找数组中实际用到的值的范围，用于归一化
+                const usedVals = times.map((_, i) => valArray[i] !== undefined ? valArray[i] : 0);
+                const minVal = Math.min(...usedVals);
+                const maxVal = Math.max(...usedVals);
+                const range = maxVal === minVal ? 1 : maxVal - minVal;
+
+                const points = times.map((time, i) => {
+                    const val = usedVals[i];
+                    const normalizedY = baseY - bandHalf + ((val - minVal) / range) * displayConfig.stepBandHeight;
+                    return { x: time, y: normalizedY };
+                });
+
+                datasets.push({
+                    label: task,
+                    data: points,
+                    backgroundColor: taskColors[task],
+                    borderColor: taskColors[task].replace('0.9', '1').replace('0.3', '0.5'),
+                    pointRadius: displayConfig.pointRadius,
+                    pointHoverRadius: displayConfig.pointHoverRadius,
+                    showLine: true,
+                    type: 'line',
+                    stepped: true,
+                    fill: false,
+                    tension: 0,
+                    datalabels: {
+                        display: showDataLabels,
+                        align: 'top',
+                        color: '#000',
+                        font: { size: 10, weight: 'bold' },
+                        formatter: function(value) {
+                            return value.x.toFixed(3);
+                        }
+                    }
+                });
+            });
+
+            // 空标签行（保留散点）
+            const pointTasks = ['空'];
             pointTasks.forEach(task => {
                 const points = data[task].map(time => ({
                     x: time,
@@ -396,10 +439,7 @@
                         display: showDataLabels,
                         align: 'top',
                         color: '#000',
-                        font: {
-                            size: 10,
-                            weight: 'bold'
-                        },
+                        font: { size: 10, weight: 'bold' },
                         formatter: function(value) {
                             return value.x.toFixed(3);
                         }
@@ -548,7 +588,7 @@
                             max: displayConfig.yAxisMax,
                             ticks: {
                                 callback: function(value, index, values) {
-                                    const taskName = Object.keys(taskRows).find(key => Math.abs(taskRows[key] - value) < 0.2);
+                                    const taskName = Object.keys(taskRows).find(key => Math.abs(taskRows[key] - value) < 0.05);
                                     return taskName || '';
                                 },
                                 font: {
@@ -556,7 +596,7 @@
                                     weight: 'bold'
                                 },
                                 color: '#333',
-                                stepSize: 0.4,
+                                stepSize: 0.2,
                                 padding: 10,
                                 autoSkip: false
                             },
@@ -598,8 +638,13 @@
             // Setup rulers
             setupRulers();
 
-            // Update time diff after chart is ready
+            // Update time diff after chart is ready, and position R1 at 0.5ms
             setTimeout(() => {
+                const xScale = timelineChart.scales.x;
+                const rect = timelineChart.canvas.getBoundingClientRect();
+                const pixel05 = xScale.getPixelForValue(currentMin + 0.5);
+                const leftPct = ((rect.left + pixel05) / window.innerWidth) * 100;
+                document.getElementById('ruler1').style.left = Math.max(1, Math.min(99, leftPct)) + '%';
                 updateTimeDiff();
             }, 200);
         }
