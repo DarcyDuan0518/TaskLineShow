@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(start E:gerrit00_Toolsclaude-TaskShowtimeline.html)",
+      "Bash(explorer \"E:\\\\gerrit\\\\00_Tools\\\\claude-TaskShow\\\\timeline.html\")"
+    ]
+  }
+}

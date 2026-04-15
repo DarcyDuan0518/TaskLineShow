@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Timeline Visualization</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <script src="config.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+            background-color: white;
+        }
+        #chart-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            padding: 20px;
+        }
+        .chartjs-wrapper {
+            position: relative;
+            height: calc(100vh - 40px);
+            width: 100%;
+        }
+        #toolbar {
+            position: fixed;
+            top: 10px;
+            left: 20px;
+            z-index: 10001;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        #file-input {
+            display: none;
+        }
+        #file-button {
+            background-color: rgba(54, 162, 235, 0.9);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 5px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            transition: background-color 0.2s;
+        }
+        #file-button:hover {
+            background-color: rgba(54, 162, 235, 1);
+        }
+        #file-name {
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 5px;
+            font-size: 12px;
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            gap: 8px;
+        }
+        .toggle-switch input[type="checkbox"] {
+            display: none;
+        }
+        .toggle-slider {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            background-color: #ccc;
+            border-radius: 24px;
+            transition: 0.3s;
+        }
+        .toggle-slider::before {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+        .toggle-switch input[type="checkbox"]:checked + .toggle-slider {
+            background-color: rgba(54, 162, 235, 0.9);
+        }
+        .toggle-switch input[type="checkbox"]:checked + .toggle-slider::before {
+            transform: translateX(20px);
+        }
+        .toggle-label {
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        #zoom-hint {
+            position: fixed;
+            top: 10px;
+            right: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 5px;
+            font-size: 12px;
+            z-index: 10001;
+        }
+        #time-diff-display {
+            position: fixed;
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(54, 162, 235, 0.9);
+            color: white;
+            padding: 12px 25px;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            z-index: 10001;
+            min-width: 250px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        .ruler-line {
+            position: fixed;
+            width: 2px;
+            height: calc(100vh - 40px);
+            background-color: rgba(255, 99, 132, 0.9);
+            cursor: ew-resize;
+            z-index: 9999;
+            pointer-events: auto;
+            box-shadow: 0 0 3px rgba(255, 99, 132, 0.6);
+            top: 20px;
+        }
+        .ruler-line::before {
+            content: '';
+            position: absolute;
+            top: -6px;
+            left: -4px;
+            width: 10px;
+            height: 10px;
+            background-color: rgba(255, 99, 132, 1);
+            transform: rotate(45deg);
+            box-shadow: 0 0 3px rgba(255, 99, 132, 0.6);
+        }
+        .ruler-label {
+            position: absolute;
+            top: 10px;
+            left: 8px;
+            background-color: rgba(255, 99, 132, 1);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+            white-space: nowrap;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        #ruler1 { left: 20%; }
+        #ruler2 { left: 80%; }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <input type="file" id="file-input" accept=".txt,.dat,.csv">
+        <button id="file-button">📁 选择数据文件</button>
+        <span id="file-name">默认数据</span>
+        <label class="toggle-switch">
+            <input type="checkbox" id="show-values-toggle">
+            <span class="toggle-slider"></span>
+            <span class="toggle-label">显示数值</span>
+        </label>
+    </div>
+    <div id="zoom-hint">🖱️ 滚轮缩放 | 点击标签上下拖动 | 拖动红尺测量</div>
+    <div id="time-diff-display">Δ t: 计算中...</div>
+    <div id="chart-container">
+        <div class="chartjs-wrapper">
+            <canvas id="timelineChart"></canvas>
+        </div>
+    </div>
+    <div id="ruler1" class="ruler-line"><span class="ruler-label">R1</span></div>
+    <div id="ruler2" class="ruler-line"><span class="ruler-label">R2</span></div>
+
+    <script>
+        // Register Chart.js datalabels plugin
+        Chart.register(ChartDataLabels);
+
+        // Global variables
+        let currentMin, currentMax, originalMin, originalMax;
+        let rawData = '';
+        let showDataLabels = false;
+
+        // File handling
+        const fileInput = document.getElementById('file-input');
+        const fileButton = document.getElementById('file-button');
+        const fileNameDisplay = document.getElementById('file-name');
+        const showValuesToggle = document.getElementById('show-values-toggle');
+
+        fileButton.addEventListener('click', function() {
+            console.log('File button clicked');
+            fileInput.click();
+        });
+
+        showValuesToggle.addEventListener('change', function() {
+            showDataLabels = this.checked;
+            if (timelineChart) {
+                updateChartDataLabels();
+                timelineChart.update();
+            }
+        });
+
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    rawData = event.target.result;
+                    fileNameDisplay.textContent = file.name;
+                    console.log('Loaded file:', file.name);
+                    console.log('Raw data length:', rawData.length);
+                    updateChart();
+                    console.log('Chart updated');
+                };
+                reader.onerror = function() {
+                    console.error('Error reading file');
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        // Parse all data - 使用config.js中的数值范围规则
+        function parseData() {
+            const lines = rawData.trim().split('\n');
+            const parsedData = {};
+
+            // Initialize data containers - 包括空标签行
+            parsedData['Core2_Chassis_ASILD_Task_5ms'] = { start: [], end: [] };
+            parsedData['Core2_BSW_ASILD_Task_1ms'] = { start: [], end: [] };
+            parsedData['Core2_BSW_ASILD_Task_5ms'] = { start: [], end: [] };
+            parsedData['Core2_BSW_ASILD_Task_10ms'] = { start: [], end: [] };
+            parsedData['Core2_Chassis_ASILD_BSWTask_1ms'] = { start: [], end: [] };
+            parsedData['Core2_Chassis_ASILD_CDDInTask_5ms'] = { start: [], end: [] };
+            parsedData['Core2_Chassis_ASILD_Task_10ms'] = { start: [], end: [] };
+            parsedData['Core2_Chassis_ASILD_Task_20ms'] = { start: [], end: [] };
+            parsedData['Core2_Chassis_ASILD_Task_40ms'] = { start: [], end: [] };
+            parsedData['ASW_Rte_Write'] = [];
+            parsedData['Adpt_CAN_Write'] = [];
+            parsedData['EaC1_5ms_CAN1'] = [];
+            parsedData['EaC2_5ms_CAN2'] = [];
+            parsedData['空'] = [];
+
+            // 使用config.js中的数据提取规则
+            const rules = dataExtractionRules;
+            const scale = rules.timeScaleFactor;
+            const ranges = rules.dataRanges;
+
+            // 第一遍：解析所有数据，收集时间值
+            const allRawTimes = [];
+            lines.forEach((line) => {
+                line = line.trim();
+                if (!line) return;
+
+                let value;
+                // 检查是否带行号
+                const match = line.match(/(\d+)\s*→\s*(\d+)/);
+                if (match) {
+                    value = parseInt(match[2]);
+                } else {
+                    value = parseInt(line);
+                }
+
+                // 根据数值范围确定数据类型
+                for (const range of ranges) {
+                    if (value >= range.rangeStart && value < range.rangeEnd) {
+                        // 计算时间值：原始值 - 范围起始值，然后转换为毫秒
+                        const time = (value - range.rangeStart) / scale;
+                        allRawTimes.push({
+                            task: range.task,
+                            type: range.type,
+                            time: time
+                        });
+                        break;
+                    }
+                }
+            });
+
+            // 找到最小时间值（第一个数据）
+            let baseTimeOffset = 0;
+            if (allRawTimes.length > 0) {
+                baseTimeOffset = Math.min(...allRawTimes.map(item => item.time));
+                console.log('Base time offset:', baseTimeOffset);
+            }
+
+            // 第二遍：减去基准时间，填充到 parsedData
+            allRawTimes.forEach(item => {
+                const normalizedTime = item.time - baseTimeOffset;
+
+                if (item.type === 'start') {
+                    parsedData[item.task].start.push(normalizedTime);
+                } else if (item.type === 'end') {
+                    parsedData[item.task].end.push(normalizedTime);
+                } else if (item.type === 'point') {
+                    parsedData[item.task].push(normalizedTime);
+                }
+            });
+
+            return parsedData;
+        }
+
+        // Prepare chart data
+        function prepareChartData() {
+            const data = parseData();
+            const datasets = [];
+
+            // Horizontal bar datasets (所有有开始/结束点的任务)
+            const taskBarTasks = [
+                'Core2_Chassis_ASILD_Task_5ms',
+                'Core2_BSW_ASILD_Task_1ms',
+                'Core2_BSW_ASILD_Task_5ms',
+                'Core2_BSW_ASILD_Task_10ms',
+                'Core2_Chassis_ASILD_BSWTask_1ms',
+                'Core2_Chassis_ASILD_CDDInTask_5ms',
+                'Core2_Chassis_ASILD_Task_10ms',
+                'Core2_Chassis_ASILD_Task_20ms',
+                'Core2_Chassis_ASILD_Task_40ms'
+            ];
+            taskBarTasks.forEach(task => {
+                const bars = [];
+                for (let i = 0; i < data[task].start.length; i++) {
+                    bars.push({
+                        x: [data[task].start[i], data[task].end[i]],
+                        y: taskRows[task]
+                    });
+                }
+
+                datasets.push({
+                    label: task,
+                    data: bars,
+                    backgroundColor: taskColors[task],
+                    borderColor: taskColors[task].replace('0.7', '1').replace('0.6', '1'),
+                    borderWidth: 2,
+                    borderRadius: 3,
+                    barThickness: displayConfig.barThickness,
+                    grouped: false,
+                    datalabels: {
+                        display: showDataLabels,
+                        align: 'center',
+                        anchor: 'center',
+                        color: '#000',
+                        font: {
+                            size: 10,
+                            weight: 'bold'
+                        },
+                        formatter: function(value) {
+                            return `${value.x[0].toFixed(3)}-${value.x[1].toFixed(3)}`;
+                        }
+                    }
+                });
+            });
+
+            // Point datasets (包括散点任务和空标签行)
+            const pointTasks = ['ASW_Rte_Write', 'Adpt_CAN_Write', 'EaC1_5ms_CAN1', 'EaC2_5ms_CAN2', '空'];
+            pointTasks.forEach(task => {
+                const points = data[task].map(time => ({
+                    x: time,
+                    y: taskRows[task]
+                }));
+
+                datasets.push({
+                    label: task,
+                    data: points,
+                    backgroundColor: taskColors[task],
+                    borderColor: taskColors[task].replace('0.9', '1').replace('0.3', '0.5'),
+                    pointRadius: displayConfig.pointRadius,
+                    pointHoverRadius: displayConfig.pointHoverRadius,
+                    showLine: false,
+                    type: 'scatter',
+                    datalabels: {
+                        display: showDataLabels,
+                        align: 'top',
+                        color: '#000',
+                        font: {
+                            size: 10,
+                            weight: 'bold'
+                        },
+                        formatter: function(value) {
+                            return value.x.toFixed(3);
+                        }
+                    }
+                });
+            });
+
+            return datasets;
+        }
+
+        // Update data labels visibility
+        function updateChartDataLabels() {
+            timelineChart.data.datasets.forEach(dataset => {
+                if (dataset.datalabels) {
+                    dataset.datalabels.display = showDataLabels;
+                }
+            });
+        }
+
+        // Update time difference display
+        function updateTimeDiff() {
+            const ruler1 = document.getElementById('ruler1');
+            const ruler2 = document.getElementById('ruler2');
+
+            if (!timelineChart) return;
+
+            const xScale = timelineChart.scales.x;
+
+            const pos1 = parseFloat(ruler1.style.left);
+            const pos2 = parseFloat(ruler2.style.left);
+
+            // Get chart canvas dimensions
+            const rect = timelineChart.canvas.getBoundingClientRect();
+            const chartArea = timelineChart.chartArea;
+
+            // Convert percentage to pixels relative to canvas
+            const pixel1 = pos1 / 100 * rect.width;
+            const pixel2 = pos2 / 100 * rect.width;
+
+            // Map pixel position to chart area and then to time
+            // pixel1 is relative to canvas left edge
+            // chartArea.left is where the chart actually starts (after Y axis and padding)
+            const relativePixel1 = pixel1 - chartArea.left;
+            const relativePixel2 = pixel2 - chartArea.left;
+
+            // Get time values directly from scale
+            const time1 = xScale.getValueForPixel(relativePixel1 + chartArea.left);
+            const time2 = xScale.getValueForPixel(relativePixel2 + chartArea.left);
+
+            const diff = Math.abs(time2 - time1);
+
+            document.getElementById('time-diff-display').textContent = `R1: ${time1.toFixed(3)} ms | R2: ${time2.toFixed(3)} ms | Δ: ${diff.toFixed(3)} ms`;
+        }
+
+        // Create chart
+        let timelineChart;
+        function createChart() {
+            const ctx = document.getElementById('timelineChart').getContext('2d');
+            const data = parseData();
+
+            // Calculate min and max time for x-axis
+            const allTimes = [
+                ...data['Core2_Chassis_ASILD_Task_5ms'].start,
+                ...data['Core2_Chassis_ASILD_Task_5ms'].end,
+                ...data['Core2_BSW_ASILD_Task_1ms'].start,
+                ...data['Core2_BSW_ASILD_Task_1ms'].end,
+                ...data['Core2_BSW_ASILD_Task_5ms'].start,
+                ...data['Core2_BSW_ASILD_Task_5ms'].end,
+                ...data['Core2_BSW_ASILD_Task_10ms'].start,
+                ...data['Core2_BSW_ASILD_Task_10ms'].end,
+                ...data['Core2_Chassis_ASILD_BSWTask_1ms'].start,
+                ...data['Core2_Chassis_ASILD_BSWTask_1ms'].end,
+                ...data['Core2_Chassis_ASILD_CDDInTask_5ms'].start,
+                ...data['Core2_Chassis_ASILD_CDDInTask_5ms'].end,
+                ...data['Core2_Chassis_ASILD_Task_10ms'].start,
+                ...data['Core2_Chassis_ASILD_Task_10ms'].end,
+                ...data['Core2_Chassis_ASILD_Task_20ms'].start,
+                ...data['Core2_Chassis_ASILD_Task_20ms'].end,
+                ...data['Core2_Chassis_ASILD_Task_40ms'].start,
+                ...data['Core2_Chassis_ASILD_Task_40ms'].end,
+                ...data['ASW_Rte_Write'],
+                ...data['Adpt_CAN_Write'],
+                ...data['EaC1_5ms_CAN1'],
+                ...data['EaC2_5ms_CAN2']
+            ];
+
+            if (allTimes.length === 0) {
+                // No data loaded yet, show empty chart
+                originalMin = 0;
+                originalMax = 100;
+            } else {
+                originalMin = Math.min(...allTimes);
+                originalMax = Math.max(...allTimes);
+            }
+
+            const timeRange = originalMax - originalMin;
+            currentMin = originalMin;
+            currentMax = originalMax + (timeRange > 0 ? timeRange * 0.1 : 10);
+
+            timelineChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    datasets: prepareChartData()
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    layout: {
+                        padding: {
+                            left: 100,
+                            right: 20,
+                            top: 10,
+                            bottom: 10
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            position: 'bottom',
+                            title: {
+                                display: true,
+                                text: 'Time (ms)',
+                                font: {
+                                    size: displayConfig.xAxisTitleFontSize,
+                                    weight: 'bold'
+                                }
+                            },
+                            min: currentMin,
+                            max: currentMax,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.1)'
+                            },
+                            ticks: {
+                                font: {
+                                    size: 14
+                                }
+                            }
+                        },
+                        y: {
+                            type: 'linear',
+                            title: {
+                                display: false
+                            },
+                            min: displayConfig.yAxisMin,
+                            max: displayConfig.yAxisMax,
+                            ticks: {
+                                callback: function(value, index, values) {
+                                    const taskName = Object.keys(taskRows).find(key => Math.abs(taskRows[key] - value) < 0.2);
+                                    return taskName || '';
+                                },
+                                font: {
+                                    size: displayConfig.yAxisFontSize,
+                                    weight: 'bold'
+                                },
+                                color: '#333',
+                                stepSize: 0.4,
+                                padding: 10,
+                                autoSkip: false
+                            },
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.1)'
+                            },
+                            offset: false
+                        }
+                    },
+                    plugins: {
+                        datalabels: {
+                            display: showDataLabels
+                        },
+                        tooltip: {
+                            enabled: true,
+                            callbacks: {
+                                label: function(context) {
+                                    if (context.dataset.type === 'scatter') {
+                                        return `${context.dataset.label}: ${context.raw.x.toFixed(3)} ms`;
+                                    } else {
+                                        return `${context.dataset.label}: ${context.raw.x[0].toFixed(3)} - ${context.raw.x[1].toFixed(3)} ms`;
+                                    }
+                                }
+                            }
+                        },
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+
+            // Add Y axis label drag functionality
+            setupYAxisDrag();
+
+            // Add zoom functionality
+            setupZoomFunctionality();
+
+            // Setup rulers
+            setupRulers();
+
+            // Update time diff after chart is ready
+            setTimeout(() => {
+                updateTimeDiff();
+            }, 200);
+        }
+
+        // Setup Y axis label dragging
+        function setupYAxisDrag() {
+            const canvas = timelineChart.canvas;
+            let isDragging = false;
+            let draggedTask = null;
+
+            // Handle initial click/drag start on Y axis
+            canvas.addEventListener('mousedown', function(e) {
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                const yScale = timelineChart.scales.y;
+
+                // Check if clicking in Y axis area (including label area)
+                const yAxisWidth = yScale.width + yScale.paddingLeft + yScale.paddingRight;
+                const yLeft = yScale.left - yScale.paddingLeft - 30;
+
+                if (x >= yLeft && x <= yLeft + yAxisWidth + 60) {
+                    const chartY = yScale.getValueForPixel(y);
+
+                    // Find which task was clicked (with wider detection area)
+                    for (const [taskName, taskPos] of Object.entries(taskRows)) {
+                        if (Math.abs(taskPos - chartY) < 0.2) {
+                            isDragging = true;
+                            draggedTask = taskName;
+                            canvas.style.cursor = 'grabbing';
+                            e.preventDefault();
+                            e.stopPropagation();
+                            console.log('Started dragging:', taskName);
+                            break;
+                        }
+                    }
+                }
+            });
+
+            // Handle dragging
+            document.addEventListener('mousemove', function(e) {
+                if (isDragging && draggedTask) {
+                    const rect = canvas.getBoundingClientRect();
+                    const y = e.clientY - rect.top;
+                    const yScale = timelineChart.scales.y;
+                    const chartY = yScale.getValueForPixel(y);
+
+                    // Snap to grid (0.4 increments)
+                    const newY = Math.round(chartY / 0.4) * 0.4;
+
+                    if (newY >= 0.4 && newY <= displayConfig.yAxisMax - 0.4) {
+                        taskRows[draggedTask] = newY;
+                        timelineChart.data.datasets = prepareChartData();
+                        timelineChart.update('none');
+                    }
+                } else {
+                    // Update cursor when hovering over Y axis labels
+                    const rect = canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const yScale = timelineChart.scales.y;
+
+                    const yAxisWidth = yScale.width + yScale.paddingLeft + yScale.paddingRight;
+                    const yLeft = yScale.left - yScale.paddingLeft - 30;
+
+                    if (x >= yLeft && x <= yLeft + yAxisWidth + 60) {
+                        canvas.style.cursor = 'grab';
+                    } else {
+                        canvas.style.cursor = 'default';
+                    }
+                }
+            });
+
+            // Handle drag end
+            document.addEventListener('mouseup', function() {
+                if (isDragging) {
+                    isDragging = false;
+                    draggedTask = null;
+                    canvas.style.cursor = 'grab';
+                    updateChart();
+                    console.log('Drag ended');
+                }
+            });
+        }
+
+        // Setup zoom functionality
+        function setupZoomFunctionality() {
+            const canvas = document.getElementById('timelineChart');
+
+            canvas.addEventListener('wheel', function(e) {
+                e.preventDefault();
+
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+
+                // Get current time at mouse position
+                const xScale = timelineChart.scales.x;
+                const mouseTime = xScale.getValueForPixel(mouseX);
+
+                // Calculate zoom factor (scroll up = zoom in, scroll down = zoom out)
+                const zoomFactor = e.deltaY < 0 ? 0.9 : 1.1;
+
+                // Calculate new range
+                const newRange = (currentMax - currentMin) * zoomFactor;
+
+                // Calculate new min and max while keeping mouse position constant
+                const mouseRatio = (mouseTime - currentMin) / (currentMax - currentMin);
+                const newMin = mouseTime - newRange * mouseRatio;
+                const newMax = mouseTime + newRange * (1 - mouseRatio);
+
+                // Limit zoom
+                if (newRange < (originalMax - originalMin) * 0.01) return;
+                if (newRange > (originalMax - originalMin) * 10) return;
+
+                // Update current values
+                currentMin = newMin;
+                currentMax = newMax;
+
+                // Update chart
+                timelineChart.options.scales.x.min = currentMin;
+                timelineChart.options.scales.x.max = currentMax;
+                timelineChart.update('none');
+
+                // Update time diff
+                updateTimeDiff();
+            }, { passive: false });
+        }
+
+        // Setup rulers
+        function setupRulers() {
+            const ruler1 = document.getElementById('ruler1');
+            const ruler2 = document.getElementById('ruler2');
+
+            let activeRuler = null;
+            let startX = 0;
+            let startLeft = 0;
+
+            console.log('Setting up rulers...');
+            console.log('Ruler 1:', ruler1);
+            console.log('Ruler 2:', ruler2);
+
+            // Setup ruler dragging - bind to document level for capture
+            document.addEventListener('mousedown', function(e) {
+                // Check if clicking on a ruler
+                if (e.target === ruler1 || e.target.closest('#ruler1') ||
+                    e.target === ruler2 || e.target.closest('#ruler2')) {
+                    if (e.target === ruler1 || e.target.closest('#ruler1')) {
+                        activeRuler = ruler1;
+                        console.log('Ruler R1 mousedown (document listener), current left:', activeRuler.style.left);
+                    } else {
+                        activeRuler = ruler2;
+                        console.log('Ruler R2 mousedown (document listener), current left:', activeRuler.style.left);
+                    }
+                    startX = e.clientX;
+                    startLeft = parseFloat(activeRuler.style.left);
+                    if (isNaN(startLeft)) {
+                        startLeft = activeRuler === ruler1 ? 20 : 80;
+                        console.log('startLeft is NaN, using default:', startLeft);
+                    }
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                }
+            }, true); // Use capture phase
+
+            document.addEventListener('mousemove', function(e) {
+                if (activeRuler) {
+                    const windowWidth = window.innerWidth;
+                    const deltaPixels = e.clientX - startX;
+                    const deltaPercent = (deltaPixels / windowWidth) * 100;
+                    let newLeft = startLeft + deltaPercent;
+
+                    // Constrain to chart area
+                    newLeft = Math.max(1, Math.min(99, newLeft));
+
+                    console.log('Moving ruler from', startLeft + '%', 'to', newLeft + '%');
+                    activeRuler.style.left = newLeft + '%';
+                    updateTimeDiff();
+                    e.preventDefault();
+                } else {
+                    // Update cursor when hovering over rulers
+                    const ruler1Rect = ruler1.getBoundingClientRect();
+                    const ruler2Rect = ruler2.getBoundingClientRect();
+
+                    if ((e.clientX > ruler1Rect.left - 8 && e.clientX < ruler1Rect.right + 8) ||
+                        (e.clientX > ruler2Rect.left - 8 && e.clientX < ruler2Rect.right + 8)) {
+                        document.body.style.cursor = 'ew-resize';
+                    } else {
+                        document.body.style.cursor = 'default';
+                    }
+                }
+            });
+
+            document.addEventListener('mouseup', function() {
+                if (activeRuler) {
+                    console.log('Ruler mouseup, activeRuler was:', activeRuler.id);
+                    activeRuler = null;
+                    document.body.style.cursor = 'default';
+                }
+            });
+        }
+
+        // Update chart
+        function updateChart() {
+            if (timelineChart) {
+                console.log('Updating chart...');
+                const data = parseData();
+                console.log('Parsed data:', data);
+
+                const allTimes = [
+                    ...data['Core2_Chassis_ASILD_Task_5ms'].start,
+                    ...data['Core2_Chassis_ASILD_Task_5ms'].end,
+                    ...data['Core2_BSW_ASILD_Task_1ms'].start,
+                    ...data['Core2_BSW_ASILD_Task_1ms'].end,
+                    ...data['Core2_BSW_ASILD_Task_5ms'].start,
+                    ...data['Core2_BSW_ASILD_Task_5ms'].end,
+                    ...data['Core2_BSW_ASILD_Task_10ms'].start,
+                    ...data['Core2_BSW_ASILD_Task_10ms'].end,
+                    ...data['Core2_Chassis_ASILD_BSWTask_1ms'].start,
+                    ...data['Core2_Chassis_ASILD_BSWTask_1ms'].end,
+                    ...data['Core2_Chassis_ASILD_CDDInTask_5ms'].start,
+                    ...data['Core2_Chassis_ASILD_CDDInTask_5ms'].end,
+                    ...data['Core2_Chassis_ASILD_Task_10ms'].start,
+                    ...data['Core2_Chassis_ASILD_Task_10ms'].end,
+                    ...data['Core2_Chassis_ASILD_Task_20ms'].start,
+                    ...data['Core2_Chassis_ASILD_Task_20ms'].end,
+                    ...data['Core2_Chassis_ASILD_Task_40ms'].start,
+                    ...data['Core2_Chassis_ASILD_Task_40ms'].end,
+                    ...data['ASW_Rte_Write'],
+                    ...data['Adpt_CAN_Write'],
+                    ...data['EaC1_5ms_CAN1'],
+                    ...data['EaC2_5ms_CAN2']
+                ];
+
+                console.log('All times:', allTimes);
+
+                // Update time range
+                if (allTimes.length > 0) {
+                    originalMin = Math.min(...allTimes);
+                    originalMax = Math.max(...allTimes);
+                    const timeRange = originalMax - originalMin;
+                    currentMin = originalMin;
+                    currentMax = originalMax + timeRange * 0.1;
+                }
+
+                console.log('Time range:', originalMin, '-', originalMax);
+
+                // Update datasets
+                timelineChart.data.datasets = prepareChartData();
+                timelineChart.options.scales.x.min = currentMin;
+                timelineChart.options.scales.x.max = currentMax;
+                timelineChart.update();
+
+                console.log('Chart updated successfully');
+
+                // Update time diff
+                setTimeout(updateTimeDiff, 100);
+            }
+        }
+
+        // Initialize when DOM is ready
+        window.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, creating chart...');
+            // 默认加载 data_All_error.txt
+            fetch('data_All_error.txt')
+                .then(response => response.text())
+                .then(text => {
+                    rawData = text;
+                    fileNameDisplay.textContent = 'data_All_error.txt';
+                    console.log('Default file loaded, length:', rawData.length);
+                    createChart();
+                })
+                .catch(() => {
+                    console.warn('Default file not found, starting with empty chart.');
+                    createChart();
+                });
+        });
+
+        // Window resize handler
+        window.addEventListener('resize', function() {
+            if (timelineChart) {
+                timelineChart.resize();
+                setTimeout(updateTimeDiff, 100);
+            }
+        });
+    </script>
+</body>
+</html>
