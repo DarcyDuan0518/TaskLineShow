@@ -112,6 +112,20 @@
             font-size: 12px;
             font-weight: bold;
         }
+        .step-toggle-btn {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            cursor: pointer;
+            border: 2px solid;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+            transition: opacity 0.2s;
+        }
+        .step-toggle-btn.hidden {
+            opacity: 0.35;
+            text-decoration: line-through;
+        }
         .data-switch-btn {
             padding: 8px 16px;
             border-radius: 5px;
@@ -221,6 +235,10 @@
             <span class="toggle-slider"></span>
             <span class="toggle-label">显示数值</span>
         </label>
+        <button class="step-toggle-btn" data-task="ASW_Rte_Write" style="color:rgba(75,192,192,1);border-color:rgba(75,192,192,0.7)">ASW_Rte</button>
+        <button class="step-toggle-btn" data-task="Adpt_CAN_Write" style="color:rgba(153,102,255,1);border-color:rgba(153,102,255,0.7)">Adpt_CAN</button>
+        <button class="step-toggle-btn" data-task="EaC1_5ms_CAN1" style="color:rgba(255,159,64,1);border-color:rgba(255,159,64,0.7)">EaC1_CAN1</button>
+        <button class="step-toggle-btn" data-task="EaC2_5ms_CAN2" style="color:rgba(255,205,86,1);border-color:rgba(255,205,86,0.7)">EaC2_CAN2</button>
     </div>
     <div id="zoom-hint">🖱️ 滚轮缩放 | 拖动平移 | Shift+拖动单条点线图 | 点击标签上下拖 | 红尺测量</div>
     <div id="time-diff-display">Δ t: 计算中...</div>
@@ -286,6 +304,13 @@
         let currentMin, currentMax, originalMin, originalMax;
         // 每个标签的时间偏移量（用于单独左右拖动）
         const taskTimeOffsets = {};
+        // 点线图显示/隐藏状态
+        const stepLineVisible = {
+            'ASW_Rte_Write': true,
+            'Adpt_CAN_Write': true,
+            'EaC1_5ms_CAN1': true,
+            'EaC2_5ms_CAN2': true
+        };
         // 两份数据分开存储
         let rawDataError  = '';
         let rawDataNormal = '';
@@ -298,6 +323,19 @@
         const showValuesToggle = document.getElementById('show-values-toggle');
         const btnError  = document.getElementById('btn-error');
         const btnNormal = document.getElementById('btn-normal');
+
+        // 点线图显示/隐藏按钮
+        document.querySelectorAll('.step-toggle-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const task = this.dataset.task;
+                stepLineVisible[task] = !stepLineVisible[task];
+                this.classList.toggle('hidden', !stepLineVisible[task]);
+                if (timelineChart) {
+                    timelineChart.data.datasets = prepareChartData();
+                    timelineChart.update();
+                }
+            });
+        });
 
         showValuesToggle.addEventListener('change', function() {
             showDataLabels = this.checked;
@@ -489,6 +527,7 @@
             // Step-line datasets（4个阶梯信号图）
             const stepLineTasks = ['ASW_Rte_Write', 'Adpt_CAN_Write', 'EaC1_5ms_CAN1', 'EaC2_5ms_CAN2'];
             stepLineTasks.forEach(task => {
+                if (!stepLineVisible[task]) return; // 隐藏的不生成数据集
                 const times = data[task];
                 const activeStepValues = currentSource === 'normal' ? pointStepValuesNormal
                     : currentSource === 'custom' ? pointStepValuesCustom
