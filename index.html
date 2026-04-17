@@ -6,7 +6,7 @@
     <title>Task Timeline Visualization</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0/dist/chartjs-plugin-datalabels.min.js"></script>
-    <script src="config.js"></script>
+    <script src="config.js?v=2"></script>
     <style>
         * {
             margin: 0;
@@ -25,6 +25,7 @@
             width: 100vw;
             height: 100vh;
             padding: 20px;
+            z-index: 1;
         }
         .chartjs-wrapper {
             position: relative;
@@ -111,6 +112,38 @@
             font-size: 12px;
             font-weight: bold;
         }
+        .data-switch-btn {
+            padding: 8px 16px;
+            border-radius: 5px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            border: 2px solid transparent;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+        .data-switch-btn.error {
+            background-color: rgba(255, 99, 132, 0.85);
+            color: white;
+        }
+        .data-switch-btn.error:hover {
+            background-color: rgba(255, 99, 132, 1);
+        }
+        .data-switch-btn.error.active {
+            border-color: #a00;
+            box-shadow: 0 0 0 3px rgba(255,99,132,0.4);
+        }
+        .data-switch-btn.normal {
+            background-color: rgba(75, 192, 192, 0.85);
+            color: white;
+        }
+        .data-switch-btn.normal:hover {
+            background-color: rgba(75, 192, 192, 1);
+        }
+        .data-switch-btn.normal.active {
+            border-color: #007a6e;
+            box-shadow: 0 0 0 3px rgba(75,192,192,0.4);
+        }
         #zoom-hint {
             position: fixed;
             top: 10px;
@@ -178,9 +211,11 @@
 </head>
 <body>
     <div id="toolbar">
-        <input type="file" id="file-input" accept=".txt,.dat,.csv">
-        <button id="file-button">📁 选择数据文件</button>
-        <span id="file-name">默认数据</span>
+        <button id="btn-error" class="data-switch-btn error active">⚠ Error 数据</button>
+        <button id="btn-normal" class="data-switch-btn normal">✓ Normal 数据</button>
+        <input type="file" id="file-input" accept=".txt">
+        <button id="file-button">📂 选择文件</button>
+        <span id="file-name">加载中...</span>
         <label class="toggle-switch">
             <input type="checkbox" id="show-values-toggle">
             <span class="toggle-slider"></span>
@@ -200,6 +235,12 @@
     <script>
         // Register Chart.js datalabels plugin
         Chart.register(ChartDataLabels);
+
+        // 兼容旧版 config.js（pointStepValues -> pointStepValuesError/Normal）
+        if (typeof pointStepValuesError === 'undefined' && typeof pointStepValues !== 'undefined') {
+            window.pointStepValuesError = pointStepValues;
+            window.pointStepValuesNormal = pointStepValues;
+        }
 
         // Plugin: draw color swatches after step-line task labels on Y axis
         const stepLineLabelSwatchPlugin = {
@@ -243,19 +284,18 @@
 
         // Global variables
         let currentMin, currentMax, originalMin, originalMax;
-        let rawData = '';
+        // 两份数据分开存储
+        let rawDataError  = '';
+        let rawDataNormal = '';
+        let currentSource = 'error'; // 当前显示的数据源
+        let rawData = '';            // 指向当前源的数据（parseData 读取此变量）
         let showDataLabels = false;
 
-        // File handling
-        const fileInput = document.getElementById('file-input');
-        const fileButton = document.getElementById('file-button');
+        // 工具栏元素
         const fileNameDisplay = document.getElementById('file-name');
         const showValuesToggle = document.getElementById('show-values-toggle');
-
-        fileButton.addEventListener('click', function() {
-            console.log('File button clicked');
-            fileInput.click();
-        });
+        const btnError  = document.getElementById('btn-error');
+        const btnNormal = document.getElementById('btn-normal');
 
         showValuesToggle.addEventListener('change', function() {
             showDataLabels = this.checked;
@@ -265,23 +305,53 @@
             }
         });
 
-        fileInput.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function(event) {
-                    rawData = event.target.result;
-                    fileNameDisplay.textContent = file.name;
-                    console.log('Loaded file:', file.name);
-                    console.log('Raw data length:', rawData.length);
-                    updateChart();
-                    console.log('Chart updated');
-                };
-                reader.onerror = function() {
-                    console.error('Error reading file');
-                };
-                reader.readAsText(file);
+        function switchDataSource(source) {
+            if (source === 'error') {
+                if (!rawDataError) { fileNameDisplay.textContent = 'Error 文件未加载'; return; }
+                rawData = rawDataError;
+                currentSource = 'error';
+                fileNameDisplay.textContent = 'dataError.txt';
+                btnError.classList.add('active');
+                btnNormal.classList.remove('active');
+            } else {
+                if (!rawDataNormal) { fileNameDisplay.textContent = 'Normal 文件未加载'; return; }
+                rawData = rawDataNormal;
+                currentSource = 'normal';
+                fileNameDisplay.textContent = 'dataNormal.txt';
+                btnNormal.classList.add('active');
+                btnError.classList.remove('active');
             }
+            if (timelineChart) {
+                updateChart();
+            } else {
+                createChart();
+            }
+        }
+
+        btnError.addEventListener('click',  () => switchDataSource('error'));
+        btnNormal.addEventListener('click', () => switchDataSource('normal'));
+
+        // 文件选择按钮
+        const fileInput  = document.getElementById('file-input');
+        const fileButton = document.getElementById('file-button');
+        fileButton.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', function() {
+            const file = this.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                rawData = e.target.result;
+                currentSource = 'custom';
+                fileNameDisplay.textContent = file.name;
+                btnError.classList.remove('active');
+                btnNormal.classList.remove('active');
+                if (timelineChart) {
+                    updateChart();
+                } else {
+                    createChart();
+                }
+            };
+            reader.readAsText(file);
         });
 
         // Parse all data - 使用config.js中的数值范围规则
@@ -340,11 +410,11 @@
                 }
             });
 
-            // 找到最小时间值（第一个数据）
+            // 用第一个数据的时间值作为基准，确保时刻从0开始
             let baseTimeOffset = 0;
             if (allRawTimes.length > 0) {
-                baseTimeOffset = Math.min(...allRawTimes.map(item => item.time));
-                console.log('Base time offset:', baseTimeOffset);
+                baseTimeOffset = allRawTimes[0].time;
+                console.log('Base time offset (first value):', baseTimeOffset);
             }
 
             // 第二遍：减去基准时间，填充到 parsedData
@@ -418,15 +488,18 @@
             const stepLineTasks = ['ASW_Rte_Write', 'Adpt_CAN_Write', 'EaC1_5ms_CAN1', 'EaC2_5ms_CAN2'];
             stepLineTasks.forEach(task => {
                 const times = data[task];
-                const valArray = pointStepValues[task];
+                const activeStepValues = currentSource === 'normal' ? pointStepValuesNormal
+                    : currentSource === 'custom' ? pointStepValuesCustom
+                    : pointStepValuesError;
+                const valArray = activeStepValues[task];
                 const baseY = taskRows[task];
 
-                // 用完整 valArray 做固定归一化，避免因数据点数量导致缩放不一致
-                const minVal = Math.min(...valArray);
-                const maxVal = Math.max(...valArray);
-                const range = maxVal === minVal ? 1 : maxVal - minVal;
-
                 const usedVals = times.map((_, i) => valArray[i] !== undefined ? valArray[i] : 0);
+
+                // 用实际显示的点做归一化，保证全波形范围铺满整个 stepBandHeight
+                const minVal = usedVals.length > 0 ? Math.min(...usedVals) : 0;
+                const maxVal = usedVals.length > 0 ? Math.max(...usedVals) : 1;
+                const range = maxVal === minVal ? 1 : maxVal - minVal;
 
                 const points = times.map((time, i) => {
                     const val = usedVals[i];
@@ -435,14 +508,12 @@
                     return { x: time, y: normalizedY };
                 });
 
-                // 将原始信号值数组存在 dataset 上，formatter 通过 dataIndex 直接查找
-                const capturedVals = usedVals.slice();
+                const capturedVals = usedVals.slice(); // 保留作 tooltip 和 datalabels 备用
 
-                // 用闭包捕获 capturedVals，不依赖 context.dataset 属性
+                // 直接用数组下标读取原始值，最可靠
                 const labelFormatter = (function(vals) {
                     return function(value, context) {
-                        const v = vals[context.dataIndex];
-                        return v !== undefined ? String(v) : '';
+                        return String(vals[context.dataIndex] !== undefined ? vals[context.dataIndex] : '');
                     };
                 })(capturedVals);
 
@@ -464,7 +535,9 @@
                         align: 'top',
                         color: '#000',
                         font: { size: 10, weight: 'bold' },
-                        formatter: labelFormatter
+                        formatter: function(value) {
+                            return value.x.toFixed(3);
+                        }
                     }
                 });
             });
@@ -961,22 +1034,43 @@
             }
         }
 
-        // Initialize when DOM is ready
+        // Initialize when DOM is ready - 同时加载 Error 和 Normal 两个文件
         window.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM loaded, creating chart...');
-            // 默认加载 dataTime.txt
-            fetch('dataTime.txt')
-                .then(response => response.text())
-                .then(text => {
-                    rawData = text;
-                    fileNameDisplay.textContent = 'dataTime.txt';
-                    console.log('Default file loaded, length:', rawData.length);
-                    createChart();
-                })
-                .catch(() => {
-                    console.warn('Default file not found, starting with empty chart.');
-                    createChart();
-                });
+            console.log('DOM loaded, loading both data files...');
+            fileNameDisplay.textContent = '加载中...';
+
+            // file:// 协议下 fetch 不可用，提示使用文件选择按钮或启动服务器
+            if (location.protocol === 'file:') {
+                fileNameDisplay.textContent = '⚠ 请用"选择文件"按钮加载，或用 start.bat 启动服务器';
+                createChart();
+                return;
+            }
+
+            const fetchError  = fetch('dataError.txt').then(r => { if (!r.ok) throw new Error(r.status); return r.text(); }).catch(e => { console.warn('dataError.txt:', e); return ''; });
+            const fetchNormal = fetch('dataNormal.txt').then(r => { if (!r.ok) throw new Error(r.status); return r.text(); }).catch(e => { console.warn('dataNormal.txt:', e); return ''; });
+
+            Promise.all([fetchError, fetchNormal]).then(([errorText, normalText]) => {
+                rawDataError  = errorText;
+                rawDataNormal = normalText;
+
+                // 默认显示 Error 数据
+                if (rawDataError) {
+                    rawData = rawDataError;
+                    currentSource = 'error';
+                    fileNameDisplay.textContent = 'dataError.txt';
+                    btnError.classList.add('active');
+                    btnNormal.classList.remove('active');
+                } else if (rawDataNormal) {
+                    rawData = rawDataNormal;
+                    currentSource = 'normal';
+                    fileNameDisplay.textContent = 'dataNormal.txt';
+                    btnNormal.classList.add('active');
+                    btnError.classList.remove('active');
+                } else {
+                    fileNameDisplay.textContent = '未找到数据文件';
+                }
+                createChart();
+            });
         });
 
         // Window resize handler
