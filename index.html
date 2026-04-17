@@ -900,6 +900,54 @@
                 // Update time diff
                 updateTimeDiff();
             }, { passive: false });
+
+            // 鼠标拖动平移时间轴
+            let isPanning = false;
+            let panStartX = 0;
+            let panStartMin = 0;
+            let panStartMax = 0;
+
+            canvas.addEventListener('mousedown', function(e) {
+                // 只在图表绘图区域内（非Y轴标签区域）响应
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const chartArea = timelineChart.chartArea;
+                if (x >= chartArea.left && x <= chartArea.right) {
+                    isPanning = true;
+                    panStartX = e.clientX;
+                    panStartMin = currentMin;
+                    panStartMax = currentMax;
+                    canvas.style.cursor = 'grabbing';
+                    e.preventDefault();
+                }
+            });
+
+            document.addEventListener('mousemove', function(e) {
+                if (!isPanning) return;
+                const rect = canvas.getBoundingClientRect();
+                const xScale = timelineChart.scales.x;
+                const chartArea = timelineChart.chartArea;
+                // 像素偏移转成时间偏移
+                const pixelDelta = e.clientX - panStartX;
+                const chartWidth = chartArea.right - chartArea.left;
+                const timeRange = panStartMax - panStartMin;
+                const timeDelta = -(pixelDelta / chartWidth) * timeRange;
+
+                currentMin = panStartMin + timeDelta;
+                currentMax = panStartMax + timeDelta;
+
+                timelineChart.options.scales.x.min = currentMin;
+                timelineChart.options.scales.x.max = currentMax;
+                timelineChart.update('none');
+                updateTimeDiff();
+            });
+
+            document.addEventListener('mouseup', function() {
+                if (isPanning) {
+                    isPanning = false;
+                    canvas.style.cursor = 'default';
+                }
+            });
         }
 
         // Setup rulers
