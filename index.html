@@ -421,11 +421,12 @@
                 const valArray = pointStepValues[task];
                 const baseY = taskRows[task];
 
-                // 找数组中实际用到的值的范围，用于归一化
-                const usedVals = times.map((_, i) => valArray[i] !== undefined ? valArray[i] : 0);
-                const minVal = Math.min(...usedVals);
-                const maxVal = Math.max(...usedVals);
+                // 用完整 valArray 做固定归一化，避免因数据点数量导致缩放不一致
+                const minVal = Math.min(...valArray);
+                const maxVal = Math.max(...valArray);
                 const range = maxVal === minVal ? 1 : maxVal - minVal;
+
+                const usedVals = times.map((_, i) => valArray[i] !== undefined ? valArray[i] : 0);
 
                 const points = times.map((time, i) => {
                     const val = usedVals[i];
@@ -434,9 +435,21 @@
                     return { x: time, y: normalizedY };
                 });
 
+                // 将原始信号值数组存在 dataset 上，formatter 通过 dataIndex 直接查找
+                const capturedVals = usedVals.slice();
+
+                // 用闭包捕获 capturedVals，不依赖 context.dataset 属性
+                const labelFormatter = (function(vals) {
+                    return function(value, context) {
+                        const v = vals[context.dataIndex];
+                        return v !== undefined ? String(v) : '';
+                    };
+                })(capturedVals);
+
                 datasets.push({
                     label: task,
                     data: points,
+                    rawSigVals: capturedVals,
                     backgroundColor: taskColors[task],
                     borderColor: taskColors[task].replace('0.9', '1').replace('0.3', '0.5'),
                     pointRadius: displayConfig.pointRadius,
@@ -451,9 +464,7 @@
                         align: 'top',
                         color: '#000',
                         font: { size: 10, weight: 'bold' },
-                        formatter: function(value) {
-                            return value.x.toFixed(3);
-                        }
+                        formatter: labelFormatter
                     }
                 });
             });
@@ -495,6 +506,8 @@
             timelineChart.data.datasets.forEach(dataset => {
                 if (dataset.datalabels) {
                     dataset.datalabels.display = showDataLabels;
+                } else {
+                    dataset.datalabels = { display: showDataLabels };
                 }
             });
         }
@@ -654,7 +667,11 @@
                             enabled: true,
                             callbacks: {
                                 label: function(context) {
-                                    if (context.dataset.type === 'scatter') {
+                                    if (context.dataset.type === 'line') {
+                                        // 阶梯线图：显示信号值和时间
+                                        const v = context.dataset.rawSigVals ? context.dataset.rawSigVals[context.dataIndex] : '?';
+                                        return `${context.dataset.label}: val=${v}  t=${context.raw.x.toFixed(3)} ms`;
+                                    } else if (context.dataset.type === 'scatter') {
                                         return `${context.dataset.label}: ${context.raw.x.toFixed(3)} ms`;
                                     } else {
                                         return `${context.dataset.label}: ${context.raw.x[0].toFixed(3)} - ${context.raw.x[1].toFixed(3)} ms`;
@@ -947,12 +964,12 @@
         // Initialize when DOM is ready
         window.addEventListener('DOMContentLoaded', function() {
             console.log('DOM loaded, creating chart...');
-            // 默认加载 data_All_error.txt
-            fetch('data_All_error.txt')
+            // 默认加载 dataTime.txt
+            fetch('dataTime.txt')
                 .then(response => response.text())
                 .then(text => {
                     rawData = text;
-                    fileNameDisplay.textContent = 'data_All_error.txt';
+                    fileNameDisplay.textContent = 'dataTime.txt';
                     console.log('Default file loaded, length:', rawData.length);
                     createChart();
                 })
