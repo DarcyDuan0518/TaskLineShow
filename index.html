@@ -222,7 +222,7 @@
             <span class="toggle-label">显示数值</span>
         </label>
     </div>
-    <div id="zoom-hint">🖱️ 滚轮缩放 | 点击标签上下拖动 | 拖动红尺测量</div>
+    <div id="zoom-hint">🖱️ 滚轮缩放 | 拖动平移 | Shift+拖动单条点线图 | 点击标签上下拖 | 红尺测量</div>
     <div id="time-diff-display">Δ t: 计算中...</div>
     <div id="chart-container">
         <div class="chartjs-wrapper">
@@ -284,6 +284,8 @@
 
         // Global variables
         let currentMin, currentMax, originalMin, originalMax;
+        // 每个标签的时间偏移量（用于单独左右拖动）
+        const taskTimeOffsets = {};
         // 两份数据分开存储
         let rawDataError  = '';
         let rawDataNormal = '';
@@ -501,11 +503,12 @@
                 const maxVal = usedVals.length > 0 ? Math.max(...usedVals) : 1;
                 const range = maxVal === minVal ? 1 : maxVal - minVal;
 
+                const offset = taskTimeOffsets[task] || 0;
                 const points = times.map((time, i) => {
                     const val = usedVals[i];
                     // baseY 为波形底部（label所在行），波形向上延伸
                     const normalizedY = baseY + ((val - minVal) / range) * displayConfig.stepBandHeight;
-                    return { x: time, y: normalizedY };
+                    return { x: time + offset, y: normalizedY };
                 });
 
                 const capturedVals = usedVals.slice(); // 保留作 tooltip 和 datalabels 备用
@@ -907,30 +910,80 @@
             let panStartMin = 0;
             let panStartMax = 0;
 
+            // 单个标签点线图拖动状态
+            let isTaskDragging = false;
+            let dragTaskName = null;
+            let taskDragStartX = 0;
+            let taskDragStartOffset = 0;
+            const stepLineTasks = ['ASW_Rte_Write', 'Adpt_CAN_Write', 'EaC1_5ms_CAN1', 'EaC2_5ms_CAN2'];
+
             canvas.addEventListener('mousedown', function(e) {
-                // 只在图表绘图区域内（非Y轴标签区域）响应
                 const rect = canvas.getBoundingClientRect();
                 const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
                 const chartArea = timelineChart.chartArea;
-                if (x >= chartArea.left && x <= chartArea.right) {
-                    isPanning = true;
-                    panStartX = e.clientX;
-                    panStartMin = currentMin;
-                    panStartMax = currentMax;
-                    canvas.style.cursor = 'grabbing';
-                    e.preventDefault();
+
+                if (x < chartArea.left || x > chartArea.right) return;
+
+                // Shift+点击：拖动单个点线图
+                if (e.shiftKey) {
+                    const yScale = timelineChart.scales.y;
+                    const chartY = yScale.getValueForPixel(y);
+                    // 找最近的点线图标签
+                    let closestTask = null;
+                    let closestDist = Infinity;
+                    stepLineTasks.forEach(task => {
+                        const baseY = taskRows[task];
+                        const topY = baseY + displayConfig.stepBandHeight;
+                        // 在波形带范围内
+                        if (chartY >= baseY - 0.1 && chartY <= topY + 0.1) {
+                            const mid = (baseY + topY) / 2;
+                            const dist = Math.abs(chartY - mid);
+                            if (dist < closestDist) {
+                                closestDist = dist;
+                                closestTask = task;
+                            }
+                        }
+                    });
+                    if (closestTask) {
+                        isTaskDragging = true;
+                        dragTaskName = closestTask;
+                        taskDragStartX = e.clientX;
+                        taskDragStartOffset = taskTimeOffsets[closestTask] || 0;
+                        canvas.style.cursor = 'col-resize';
+                        e.preventDefault();
+                        e.stopPropagation();
+                        return;
+                    }
                 }
+
+                // 普通点击：平移整体时间轴
+                isPanning = true;
+                panStartX = e.clientX;
+                panStartMin = currentMin;
+                panStartMax = currentMax;
+                canvas.style.cursor = 'grabbing';
+                e.preventDefault();
             });
 
             document.addEventListener('mousemove', function(e) {
+                if (isTaskDragging && dragTaskName) {
+                    const chartArea = timelineChart.chartArea;
+                    const chartWidth = chartArea.right - chartArea.left;
+                    const timeRange = currentMax - currentMin;
+                    const pixelDelta = e.clientX - taskDragStartX;
+                    const timeDelta = (pixelDelta / chartWidth) * timeRange;
+                    taskTimeOffsets[dragTaskName] = taskDragStartOffset + timeDelta;
+                    // 更新该标签的数据集
+                    timelineChart.data.datasets = prepareChartData();
+                    timelineChart.update('none');
+                    return;
+                }
                 if (!isPanning) return;
-                const rect = canvas.getBoundingClientRect();
-                const xScale = timelineChart.scales.x;
                 const chartArea = timelineChart.chartArea;
-                // 像素偏移转成时间偏移
-                const pixelDelta = e.clientX - panStartX;
                 const chartWidth = chartArea.right - chartArea.left;
                 const timeRange = panStartMax - panStartMin;
+                const pixelDelta = e.clientX - panStartX;
                 const timeDelta = -(pixelDelta / chartWidth) * timeRange;
 
                 currentMin = panStartMin + timeDelta;
@@ -943,6 +996,12 @@
             });
 
             document.addEventListener('mouseup', function() {
+                if (isTaskDragging) {
+                    isTaskDragging = false;
+                    dragTaskName = null;
+                    canvas.style.cursor = 'default';
+                    return;
+                }
                 if (isPanning) {
                     isPanning = false;
                     canvas.style.cursor = 'default';
